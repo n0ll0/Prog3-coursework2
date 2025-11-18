@@ -132,6 +132,7 @@
     <ClCompile Include="Test.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include=".gitignore" />
     <None Include="DataProvider.dll" />
     <None Include="DataSource.def" />
     <None Include="DataSource.dll" />

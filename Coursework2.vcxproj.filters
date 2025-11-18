@@ -34,6 +34,7 @@
     </None>
     <None Include="DataSource.dll" />
     <None Include="DataProvider.dll" />
+    <None Include=".gitignore" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DataSource.h">
