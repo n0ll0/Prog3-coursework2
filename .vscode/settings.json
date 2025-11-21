@@ -1,0 +1,8 @@
+{
+	"files.associations": {
+		"*.dbclient-js": "javascript",
+		"*.ejs": "html",
+		"*.ino": "cpp",
+		"iosfwd": "cpp"
+	}
+}

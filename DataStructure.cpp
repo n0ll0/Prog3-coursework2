@@ -92,32 +92,40 @@ void DataStructure::operator+=(Item& item) {
 }
 
 void DataStructure::operator-=(char* pID) {
+  // Parse the ID to extract the key components
   ParsedKey key;
   if (!tryParseKey(pID, key)) {
     throw std::runtime_error("Invalid ID");
   }
 
-  auto outer = mBuckets.find(key.firstLetter);
-  if (outer == mBuckets.end()) {
+  // Find the bucket corresponding to the first letter
+  auto bucketIterator = mBuckets.find(key.firstLetter);
+  if (bucketIterator == mBuckets.end()) {
     throw std::runtime_error("Item not found");
   }
 
-  auto& list = outer->second[key.secondIndex];
-  auto prev = list.before_begin();
-  for (auto it = list.begin(); it != list.end(); ++it) {
-    if (std::strcmp(it->GetID(), pID) == 0) {
-      list.erase_after(prev);
+  // Access the list for the second letter index
+  auto& itemList = bucketIterator->second[key.secondIndex];
+  auto previousIterator = itemList.before_begin();
+  for (auto currentIterator = itemList.begin(); currentIterator != itemList.end(); ++currentIterator) {
+    // Check if this item matches the ID
+    if (std::strcmp(currentIterator->GetID(), pID) == 0) {
+      // Remove the item from the list
+      itemList.erase_after(previousIterator);
 
-      if (list.empty()) {
-        const bool emptyBucket = std::all_of(
-            outer->second.begin(), outer->second.end(),
-            [](const auto& candidate) { return candidate.empty(); });
+      // If the list is now empty, check if the entire bucket is empty
+      if (itemList.empty()) {
+        const bool isBucketEmpty = std::all_of(
+            bucketIterator->second.begin(), bucketIterator->second.end(),
+            [](const auto& candidateList) { return candidateList.empty(); });
+        // Note: If the bucket is empty, it could be removed here, but that's not implemented in the original code
       }
       return;
     }
-    ++prev;
+    ++previousIterator;
   }
 
+  // If we reach here, the item was not found
   throw std::runtime_error("Item not found");
 }
 
