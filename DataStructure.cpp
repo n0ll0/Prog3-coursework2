@@ -5,136 +5,170 @@
 #include <iterator>
 #include <stdexcept>
 
+// =============================================================================
+// This file implements a two-level hash-like data structure for storing Items.
+//
+// The storage works like this:
+// - Items are indexed by their ID string, which has the format "FirstWord SecondWord"
+// - The first level is a map keyed by the first letter of the first word (A-Z)
+// - The second level is an array of 26 linked lists, indexed by the first letter
+//   of the second word (A=0, B=1, ... Z=25)
+//
+// Example: "Cafe Noir" would be stored at:
+//   mBuckets['C'][13]  (C for "Cafe", 13 for 'N' in "Noir")
+// =============================================================================
+
 namespace {
-struct ParsedKey {
-  char firstLetter{};
-  std::size_t secondIndex{};
+
+// Constants for valid uppercase letter range (A-Z)
+constexpr char FIRST_VALID_LETTER = 'A';
+constexpr char LAST_VALID_LETTER = 'Z';
+constexpr char WORD_SEPARATOR = ' ';
+
+// Holds the parsed components of an item identifier.
+// The identifier format is "FirstWord SecondWord" (e.g., "Cafe Noir").
+struct ParsedItemIdentifier {
+  char firstWordInitial{};       // First letter of the first word (e.g., 'C' for "Cafe")
+  std::size_t secondWordIndex{}; // Index derived from first letter of second word (0-25)
 };
 
-bool tryParseKey(const char* pID, ParsedKey& key) {
-  if (!pID || pID[0] == '\0') {
+// Attempts to parse an item identifier string into its bucket keys.
+// Returns true if parsing succeeded, false if the identifier is invalid.
+// Valid format: "FirstWord SecondWord" where both words start with A-Z.
+bool tryParseItemIdentifier(const char* itemIdentifier, ParsedItemIdentifier& parsedResult) {
+  if (!itemIdentifier || itemIdentifier[0] == '\0') {
     return false;
   }
 
-  const char first = pID[0];
-  if (first < 'A' || first > 'Z') {
+  const char firstWordInitial = itemIdentifier[0];
+  if (firstWordInitial < FIRST_VALID_LETTER || firstWordInitial > LAST_VALID_LETTER) {
     return false;
   }
 
-  const char* space = std::strchr(pID, ' ');
-  if (!space || !space[1]) {
+  const char* spacePosition = std::strchr(itemIdentifier, WORD_SEPARATOR);
+  if (!spacePosition || !spacePosition[1]) {
     return false;
   }
 
-  const char second = space[1];
-  if (second < 'A' || second > 'Z') {
+  const char secondWordInitial = spacePosition[1];
+  if (secondWordInitial < FIRST_VALID_LETTER || secondWordInitial > LAST_VALID_LETTER) {
     return false;
   }
 
-  key.firstLetter = first;
-  key.secondIndex = static_cast<std::size_t>(second - 'A');
+  parsedResult.firstWordInitial = firstWordInitial;
+  parsedResult.secondWordIndex = static_cast<std::size_t>(secondWordInitial - FIRST_VALID_LETTER);
   return true;
 }
 
 } // namespace
 
+// Returns the total number of items stored in the data structure.
 int DataStructure::GetItemsNumber() const {
-  int count = 0;
-  for (const auto& entry : mBuckets) {
-    for (const auto& list : entry.second) {
-      count += static_cast<int>(std::distance(list.begin(), list.end()));
+  int totalCount = 0;
+  for (const auto& bucketEntry : mBuckets) {
+    for (const auto& itemList : bucketEntry.second) {
+      totalCount += static_cast<int>(std::distance(itemList.begin(), itemList.end()));
     }
   }
-  return count;
+  return totalCount;
 }
 
-Item* DataStructure::GetItem(char* pID) const {
-  ParsedKey key;
-  if (!tryParseKey(pID, key)) {
+// Searches for an item by its identifier string.
+// Returns a pointer to the item if found, or nullptr if not found.
+Item* DataStructure::GetItem(char* itemIdentifier) const {
+  ParsedItemIdentifier parsedIdentifier;
+  if (!tryParseItemIdentifier(itemIdentifier, parsedIdentifier)) {
     return nullptr;
   }
 
-  const auto outer = mBuckets.find(key.firstLetter);
-  if (outer == mBuckets.end()) {
+  const auto bucketIterator = mBuckets.find(parsedIdentifier.firstWordInitial);
+  if (bucketIterator == mBuckets.end()) {
     return nullptr;
   }
 
-  const auto& list = outer->second[key.secondIndex];
-  const auto found =
-      std::find_if(list.begin(), list.end(), [pID](const Item& item) {
-        return std::strcmp(item.GetID(), pID) == 0;
+  const auto& itemList = bucketIterator->second[parsedIdentifier.secondWordIndex];
+  const auto foundItem =
+      std::find_if(itemList.begin(), itemList.end(), [itemIdentifier](const Item& candidateItem) {
+        return std::strcmp(candidateItem.GetID(), itemIdentifier) == 0;
       });
 
-  if (found == list.end()) {
+  if (foundItem == itemList.end()) {
     return nullptr;
   }
 
-  return const_cast<Item*>(&(*found));
+  return const_cast<Item*>(&(*foundItem));
 }
 
-void DataStructure::operator+=(Item& item) {
-  ParsedKey key;
-  if (!tryParseKey(item.GetID(), key)) {
+// Adds an item to the data structure.
+// Throws an exception if the item's ID is invalid or if an item with the same ID already exists.
+void DataStructure::operator+=(Item& itemToAdd) {
+  ParsedItemIdentifier parsedIdentifier;
+  if (!tryParseItemIdentifier(itemToAdd.GetID(), parsedIdentifier)) {
     throw std::runtime_error("Invalid ID");
   }
 
-  auto& list = mBuckets[key.firstLetter][key.secondIndex];
-  const auto duplicate =
-      std::find_if(list.begin(), list.end(), [&item](const Item& existing) {
-        return std::strcmp(existing.GetID(), item.GetID()) == 0;
+  auto& itemList = mBuckets[parsedIdentifier.firstWordInitial][parsedIdentifier.secondWordIndex];
+  const auto duplicateItem =
+      std::find_if(itemList.begin(), itemList.end(), [&itemToAdd](const Item& existingItem) {
+        return std::strcmp(existingItem.GetID(), itemToAdd.GetID()) == 0;
       });
 
-  if (duplicate != list.end()) {
+  if (duplicateItem != itemList.end()) {
     throw std::runtime_error("Item already exists");
   }
 
-  list.push_front(item);
+  itemList.push_front(itemToAdd);
 }
 
-void DataStructure::operator-=(char* pID) {
-  // Parse the ID to extract the key components
-  ParsedKey key;
-  if (!tryParseKey(pID, key)) {
+// Removes an item from the data structure by its identifier.
+// Throws an exception if the item is not found or the ID is invalid.
+void DataStructure::operator-=(char* itemIdentifier) {
+  // Parse the identifier to extract the bucket keys
+  ParsedItemIdentifier parsedIdentifier;
+  if (!tryParseItemIdentifier(itemIdentifier, parsedIdentifier)) {
     throw std::runtime_error("Invalid ID");
   }
 
-  // Find the bucket corresponding to the first letter
-  auto bucketIterator = mBuckets.find(key.firstLetter);
+  // Find the bucket corresponding to the first word's initial letter
+  auto bucketIterator = mBuckets.find(parsedIdentifier.firstWordInitial);
   if (bucketIterator == mBuckets.end()) {
     throw std::runtime_error("Item not found");
   }
 
-  // Access the list for the second letter index
-  auto& itemList = bucketIterator->second[key.secondIndex];
+  // Access the linked list for the second word's initial letter
+  auto& itemList = bucketIterator->second[parsedIdentifier.secondWordIndex];
   auto previousIterator = itemList.before_begin();
   for (auto currentIterator = itemList.begin(); currentIterator != itemList.end(); ++currentIterator) {
-    // Check if this item matches the ID
-    if (std::strcmp(currentIterator->GetID(), pID) == 0) {
-      // Remove the item from the list
+    // Check if the current item matches the identifier we're looking for
+    if (std::strcmp(currentIterator->GetID(), itemIdentifier) == 0) {
+      // Remove the item from the linked list
       itemList.erase_after(previousIterator);
 
-      // If the list is now empty, check if the entire bucket is empty
+      // Check if the entire bucket (all 26 lists) is now empty
       if (itemList.empty()) {
-        const bool isBucketEmpty = std::all_of(
+        const bool isBucketCompletelyEmpty = std::all_of(
             bucketIterator->second.begin(), bucketIterator->second.end(),
             [](const auto& candidateList) { return candidateList.empty(); });
-        // Note: If the bucket is empty, it could be removed here, but that's not implemented in the original code
+        // Note: The bucket could be removed from the map here if empty,
+        // but this optimization is not implemented.
+        (void)isBucketCompletelyEmpty; // Suppress unused variable warning
       }
       return;
     }
     ++previousIterator;
   }
 
-  // If we reach here, the item was not found
+  // If we reach here, no item with the given identifier was found
   throw std::runtime_error("Item not found");
 }
 
-std::ostream& operator<<(std::ostream& ostr, const DataStructure& str) {
-  for (const auto& entry : str.mBuckets) {
-    for (const auto& list : entry.second) {
-      std::for_each(list.begin(), list.end(),
-                    [&ostr](const Item& item) { ostr << item << std::endl; });
+// Stream output operator: prints all items in the data structure, one per line.
+std::ostream& operator<<(std::ostream& outputStream, const DataStructure& dataStructure) {
+  for (const auto& bucketEntry : dataStructure.mBuckets) {
+    for (const auto& itemList : bucketEntry.second) {
+      std::for_each(itemList.begin(), itemList.end(),
+                    [&outputStream](const Item& currentItem) { outputStream << currentItem << std::endl; });
     }
   }
-  return ostr;
+  return outputStream;
 }
